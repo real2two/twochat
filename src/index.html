@@ -1,0 +1,160 @@
+<html>
+    <head>
+        <title>twochat.pages.dev</title>
+        <style>
+            #error {
+                color: red;
+            }
+
+            #loading {
+                display: none;
+            }
+
+            #chat {
+                display: none;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="login">
+            <h2>twochat.pages.dev</h2>
+            <p>A scuffed lightweighted chat room service.</p>
+            <p id="error"></p>
+            <p>
+                Server: <input id="server" value="localhost"><br>
+                Username: <input id="username" value="Two"><br>
+                <button onclick="joinServer()">Join</button>
+            </p>
+        </div>
+
+        <div id="loading">
+            <p>Loading...</p>
+        </div>
+
+        <div id="chat">
+            <p id="messages"></p>
+            <p><input id="content" placeholder="Send a message..."><button onclick="sendMessage()">Send</button></p>
+        </div>
+
+        <script>
+            let ws;
+
+            function joinServer() {
+                document.getElementById("login").style.display = "none";
+                document.getElementById("loading").style.display = "block";
+
+                const server = document.getElementById("server").value.trim();
+                const username = document.getElementById("username").value.trim();
+
+                if (!checkDomain(server) && server !== "localhost") return onError("The provided server's domain is not a valid domain.");
+                if (!username.length) return onError("A username has not been provided.");
+                if (username.length > 16) return onError("A username can only be up to 16 characters.");
+                if (username.replace(/[0-9a-zA-Z]/g, "").length > 0) return onError("A username can only contain numbers and letters.");
+
+                document.getElementById("messages").innerHTML = "";
+
+                let connected = false;
+                let reason = "";
+                ws = new WebSocket(`ws${document.location.protocol == "https:" ? "s" : ""}://${server}`, username);
+
+                ws.onopen = () => {
+                    connected = true;
+
+                    console.log("[WEBSOCKET] Connected!");
+
+                    document.getElementById("loading").style.display = "none";
+                    document.getElementById("chat").style.display = "block";
+                    
+                    ws.onmessage = evt => {
+                        let { data } = evt;
+                        try {
+                            data = JSON.parse(data);
+                        } catch(err) {
+                            console.log("[WEBSOCKET] An error has occured when attempting to parse the JSON received data.");
+                            return unexpectedPacket();
+                        }
+
+                        if (Array.isArray(data)) {
+                            if (data.length !== 2) return unexpectedPacket();
+                            if (!data[0].length || data[0].length > 16 || data[0].replace(/[0-9a-zA-Z]/g, "").length > 0) return unexpectedPacket();
+                            // do stuff for data[1]
+                            addMessage(`${data[0]}: ${data[1].replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;")}`);
+                        } else {
+                            if (typeof data.a !== "number" || typeof data.u !== "string") return unexpectedPacket();
+                            if (![0, 1].includes(data.a)) return unexpectedPacket();
+                            if (!data.u.length || data.u.length > 16 || data.u.replace(/[0-9a-zA-Z]/g, "").length > 0) return unexpectedPacket();
+
+                            addMessage(`${data.u} ${data.a ? "left" : "joined"} the chat room.`);
+                        }
+                    }
+                }
+
+                function addMessage(content) {
+                    document.getElementById("messages").innerHTML += `${content}<br>`;
+
+                    const split = document.getElementById("messages").innerHTML.split("<br>");
+                    if (split.length > 21) {
+                        document.getElementById("messages").innerHTML = split.slice(Math.max(split.length - 21, 0)).join("<br>");
+                    }
+                }
+
+                function unexpectedPacket() {
+                    reason = "An unexpected packet has been received.";
+                    return ws.close();
+                }
+
+                ws.onclose = () => {
+                    console.log("[WEBSOCKET] Disconnected.");
+                    if (reason) return onError(reason);
+                    if (!connected) return onError("Could not join server.");
+                    onError("Disconnected.");
+                }
+
+                ws.onerror = evt => {
+                    console.log("[WEBSOCKET] An error has occured on the WebSocket connection.");
+                    console.log(evt);
+                    ws.close();
+                    onError("An unexpected error has occured.");
+                }
+            }
+
+            function sendMessage() {
+                let input = document.getElementById("content");
+
+                let content = input.value;
+                if (!content.length) return;
+                input.value = "";
+
+                ws.send(content);
+            }
+
+            function onError(error) {
+                document.getElementById("loading").style.display = "none";
+                document.getElementById("chat").style.display = "none";
+
+                document.getElementById("error").innerHTML = error;
+                document.getElementById("login").style.display = "block";
+            }
+
+            function checkDomain(domain) { // https://stackoverflow.com/questions/13027854/javascript-regular-expression-validation-for-domain-name
+                return domain.match(new RegExp(/^((?:(?:(?:\w[\.\-\+]?)*)\w)+)((?:(?:(?:\w[\.\-\+]?){0,62})\w)+)\.(\w{2,6})$/));
+            }
+
+            function logKey(event) {
+                if (event.key == "Enter") {
+                    if (document.activeElement == document.getElementById("content")) {
+                        sendMessage();
+
+                        document.getElementById("content").focus();
+                        document.getElementById("content").blur();
+                    } else {
+                        document.getElementById("content").focus();
+                        document.getElementById("content").select();
+                    }
+                }
+            }
+
+            document.addEventListener('keydown', logKey);
+        </script>
+    </body>
+</html>
